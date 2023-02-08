@@ -4,10 +4,9 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Tpetry\PostgresqlEnhanced\Schema\Blueprint;
 use Tpetry\PostgresqlEnhanced\Support\Facades\Schema;
+use Jaulz\Limax\Limax;
 
 return new class extends Migration {
-  public string $schema = 'limax';
-
   /**
    * Run the migrations.
    *
@@ -28,11 +27,11 @@ return new class extends Migration {
     */
 
     DB::transaction(function () {
-      DB::statement('CREATE SCHEMA IF NOT EXISTS ' . $this->schema);
+      DB::statement('CREATE SCHEMA IF NOT EXISTS ' . Limax::$schema);
 
       // Create utility functions
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.get_record_value',
+        name: Limax::$schema . '.get_record_value',
         parameters: [
           'p_element' => 'anyelement',
           'p_key' => 'text',
@@ -49,7 +48,7 @@ PLPGSQL
       );
 
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.get_primary_key_name',
+        name: Limax::$schema . '.get_primary_key_name',
         parameters: [
           'p_table_schema' => 'text',
           'p_table_name' => 'text',
@@ -93,7 +92,7 @@ PLPGSQL
       );
 
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.generate_slug',
+        name: Limax::$schema . '.generate_slug',
         parameters: [
           'p_input' => 'text',
         ],
@@ -117,7 +116,7 @@ PLPGSQL
   END;
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         ),
         language: 'PLPGSQL',
         options: [
@@ -127,7 +126,7 @@ PLPGSQL
       );
 
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.create',
+        name: Limax::$schema . '.create',
         parameters: [
           'p_table_schema' => 'text',
           'p_table_name' => 'text',
@@ -146,13 +145,13 @@ PLPGSQL
   END;
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         ),
         language: 'PLPGSQL'
       );
 
       // Create tables
-      Schema::create($this->schema . '.definitions', function (
+      Schema::create(Limax::$schema . '.definitions', function (
         Blueprint $table
       ) {
         $table->id()->generatedAs();
@@ -171,18 +170,18 @@ PLPGSQL
             ALTER TABLE %1\$s.definitions
               ADD COLUMN group_by text[] DEFAULT '{}'::text[];
           SQL, 
-          $this->schema
+          Limax::$schema
         )
       );
 
-      Schema::create($this->schema . '.slugs', function (Blueprint $table) {
+      Schema::create(Limax::$schema . '.slugs', function (Blueprint $table) {
         $table->id()->generatedAs();
 
         $table->unsignedBigInteger('definition_id');
         $table
           ->foreign('definition_id')
           ->references('id')
-          ->on($this->schema . '.definitions')
+          ->on(Limax::$schema . '.definitions')
           ->cascadeOnDelete();
 
         $table->text('primary_key');
@@ -202,17 +201,17 @@ PLPGSQL
             ALTER TABLE %1\$s.slugs
               ADD COLUMN grouped_by text[] DEFAULT '{}'::text[];
           SQL, 
-          $this->schema
+          Limax::$schema
         )
       );
 
-      Schema::table($this->schema . '.slugs', function (Blueprint $table) {
+      Schema::table(Limax::$schema . '.slugs', function (Blueprint $table) {
         $table->unique(['definition_id', 'grouped_by', 'value']);
       });
 
       // Create trigger functions
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.definitions__before',
+        name: Limax::$schema . '.definitions__before',
         parameters: [],
         return: 'trigger',
         body: sprintf(
@@ -238,13 +237,13 @@ PLPGSQL
   END;
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         ),
         language: 'PLPGSQL'
       );
 
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.definitions__after',
+        name: Limax::$schema . '.definitions__after',
         parameters: [],
         return: 'trigger',
         body: sprintf(
@@ -357,13 +356,13 @@ BEGIN
 END;
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         ),
         language: 'PLPGSQL'
       );
 
       Schema::createFunctionOrReplace(
-        name: $this->schema . '.limax__before',
+        name: Limax::$schema . '.limax__before',
         parameters: [],
         return: 'trigger',
         body: sprintf(
@@ -536,7 +535,7 @@ BEGIN
 END;
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         ),
         language: 'PLPGSQL'
       );
@@ -551,7 +550,7 @@ CREATE OR REPLACE TRIGGER "100_prepare_before"
   EXECUTE FUNCTION %1\$s.definitions__before();
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         )
       );
 
@@ -564,7 +563,7 @@ PLPGSQL
     EXECUTE FUNCTION %1\$s.definitions__after();
 PLPGSQL
           ,
-          $this->schema
+          Limax::$schema
         )
       );
 
@@ -577,7 +576,7 @@ PLPGSQL
   GRANT USAGE ON SCHEMA %1\$s TO %2\$s;
 PLPGSQL
           ,
-          $this->schema,
+          Limax::$schema,
           $user
         )
       );
@@ -587,7 +586,7 @@ PLPGSQL
   GRANT SELECT ON TABLE %1\$s.definitions TO %2\$s;
 PLPGSQL
           ,
-          $this->schema,
+          Limax::$schema,
           $user
         )
       );
@@ -601,6 +600,6 @@ PLPGSQL
    */
   public function down()
   {
-    DB::statement('DROP SCHEMA IF EXISTS ' . $this->schema . ' CASCADE;');
+    DB::statement('DROP SCHEMA IF EXISTS ' . Limax::$schema . ' CASCADE;');
   }
 };
