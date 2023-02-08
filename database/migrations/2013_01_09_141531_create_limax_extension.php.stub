@@ -14,18 +14,6 @@ return new class extends Migration {
    */
   public function up()
   {
-    /*
-      Some test commands:
-
-      SELECT limax.create('app', 'migrations', 'migration', (SELECT ARRAY(SELECT jsonb_array_elements_text('[]'::jsonb))), 'slug');
-
-      SELECT limax.create('app', 'migrations', 'migration', (SELECT ARRAY(SELECT jsonb_array_elements_text('["batch"]'::jsonb))), 'slug2');
-
-      insert into app.migrations (migration, batch) values ('test', 1);
-
-      insert into app.migrations (migration, batch) values ('test', 2);
-    */
-
     DB::transaction(function () {
       DB::statement('CREATE SCHEMA IF NOT EXISTS ' . Limax::$schema);
 
