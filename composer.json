@@ -9,7 +9,7 @@
     "license": "MPL-2.0",
     "autoload": {
         "psr-4": {
-            "Jaulz\\Limax\\": "src/",
+            "Jaulz\\Limax\\": "src/"
         }
     },
     "autoload-dev": {
