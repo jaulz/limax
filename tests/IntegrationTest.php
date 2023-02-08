@@ -13,7 +13,7 @@ beforeEach(function () {
     DB::statement('CREATE EXTENSION IF NOT EXISTS hstore');
     DB::statement('CREATE EXTENSION IF NOT EXISTS unaccent');
 
-    $migration = include __DIR__ . '/../database/migrations/2013_01_09_141531_create_limax_extension.php.stub';
+    $migration = include __DIR__ . '/../database/migrations/create_limax_extension.php.stub';
     $migration->up();
 });
 

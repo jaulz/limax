@@ -28,7 +28,7 @@ class LimaxServiceProvider extends PackageServiceProvider
         $package
             ->name('limax')
             ->hasConfigFile('limax')
-            ->hasMigration('2013_01_09_141531_create_limax_extension')
+            ->hasMigration('create_limax_extension')
             ->hasInstallCommand(function(InstallCommand $command) {
                 $command
                     ->publishMigrations()
