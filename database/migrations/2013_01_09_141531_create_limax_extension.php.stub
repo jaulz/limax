@@ -1,0 +1,606 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+use Tpetry\PostgresqlEnhanced\Schema\Blueprint;
+use Tpetry\PostgresqlEnhanced\Support\Facades\Schema;
+
+return new class extends Migration {
+  public string $schema = 'limax';
+
+  /**
+   * Run the migrations.
+   *
+   * @return void
+   */
+  public function up()
+  {
+    /*
+      Some test commands:
+
+      SELECT limax.create('app', 'migrations', 'migration', (SELECT ARRAY(SELECT jsonb_array_elements_text('[]'::jsonb))), 'slug');
+
+      SELECT limax.create('app', 'migrations', 'migration', (SELECT ARRAY(SELECT jsonb_array_elements_text('["batch"]'::jsonb))), 'slug2');
+
+      insert into app.migrations (migration, batch) values ('test', 1);
+
+      insert into app.migrations (migration, batch) values ('test', 2);
+    */
+
+    DB::transaction(function () {
+      DB::statement('CREATE SCHEMA IF NOT EXISTS ' . $this->schema);
+
+      // Create utility functions
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.get_record_value',
+        parameters: [
+          'p_element' => 'anyelement',
+          'p_key' => 'text',
+        ],
+        return: 'text',
+        body: sprintf(
+          <<<PLPGSQL
+BEGIN
+  RETURN row_to_json(p_element) ->> p_key;
+END;
+PLPGSQL
+        ),
+        language: 'PLPGSQL'
+      );
+
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.get_primary_key_name',
+        parameters: [
+          'p_table_schema' => 'text',
+          'p_table_name' => 'text',
+        ],
+        return: 'text',
+        body: sprintf(
+          <<<PLPGSQL
+  DECLARE
+    primary_key_name text;
+  BEGIN
+    EXECUTE format(
+        '
+          SELECT c.column_name
+            FROM information_schema.table_constraints tc 
+            JOIN information_schema.constraint_column_usage AS ccu 
+              USING (constraint_schema, constraint_name) 
+            JOIN information_schema.columns AS c 
+              ON 
+                  c.table_schema = tc.constraint_schema
+                AND 
+                  tc.table_name = c.table_name 
+                AND 
+                  ccu.column_name = c.column_name
+            WHERE 
+                constraint_type = ''PRIMARY KEY''
+              AND 
+                tc.table_schema = %%L
+              AND 
+                tc.table_name = %%L
+        ',
+        p_table_schema,
+        p_table_name
+      ) 
+      INTO primary_key_name;
+
+    RETURN primary_key_name;
+  END;
+PLPGSQL
+        ),
+        language: 'PLPGSQL'
+      );
+
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.generate_slug',
+        parameters: [
+          'p_input' => 'text',
+        ],
+        return: 'text',
+        body: sprintf(
+          <<<PLPGSQL
+  DECLARE
+    output text;
+  BEGIN
+    output := regexp_replace(p_input, '[Ää]', 'ae', 'g');
+    output := regexp_replace(output, '[Öö]', 'oe', 'g');
+    output := regexp_replace(output, '[Üü]', 'ue', 'g');
+    output := unaccent(output);
+    output := lower(output);
+    output := regexp_replace(output, '[''"]+', '', 'gi');
+    output := regexp_replace(output, '[^a-z0-9\-_]+', '-', 'gi');
+    output := regexp_replace(output, '\-+$', '');
+    output := regexp_replace(output, '^\-', '');
+
+    RETURN output;
+  END;
+PLPGSQL
+          ,
+          $this->schema
+        ),
+        language: 'PLPGSQL',
+        options: [
+          'volatility' => 'immutable',
+          'parallel' => 'safe',
+        ]
+      );
+
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.create',
+        parameters: [
+          'p_table_schema' => 'text',
+          'p_table_name' => 'text',
+          'p_source_name' => 'text',
+          'p_group_by' => "text[] DEFAULT '{}'::text[]",
+          'p_target_name' => "text DEFAULT 'slug'",
+        ],
+        return: 'void',
+        body: sprintf(
+          <<<PLPGSQL
+  BEGIN
+    INSERT INTO %1\$s.definitions 
+        (table_schema, table_name, target_name, group_by, source_name) 
+      VALUES 
+        (p_table_schema, p_table_name, p_target_name, p_group_by, p_source_name);
+  END;
+PLPGSQL
+          ,
+          $this->schema
+        ),
+        language: 'PLPGSQL'
+      );
+
+      // Create tables
+      Schema::create($this->schema . '.definitions', function (
+        Blueprint $table
+      ) {
+        $table->id()->generatedAs();
+
+        $table->text('table_schema');
+        $table->text('table_name');
+        $table->text('source_name');
+        $table->text('target_name')->default('slug');
+        $table->text('primary_key_name');
+
+        $table->unique(['table_schema', 'table_name', 'target_name']);
+      });
+
+      DB::statement(
+        sprintf(<<<SQL
+            ALTER TABLE %1\$s.definitions
+              ADD COLUMN group_by text[] DEFAULT '{}'::text[];
+          SQL, 
+          $this->schema
+        )
+      );
+
+      Schema::create($this->schema . '.slugs', function (Blueprint $table) {
+        $table->id()->generatedAs();
+
+        $table->unsignedBigInteger('definition_id');
+        $table
+          ->foreign('definition_id')
+          ->references('id')
+          ->on($this->schema . '.definitions')
+          ->cascadeOnDelete();
+
+        $table->text('primary_key');
+
+        $table->text('base')->nullable();
+        $table->integer('suffix')->nullable();
+
+        $table->text('value')->nullable();
+
+        $table->timestampTz('created_at')->default(DB::raw('NOW()'));
+
+        $table->index(['definition_id', 'primary_key']);
+      });
+
+      DB::statement(
+        sprintf(<<<SQL
+            ALTER TABLE %1\$s.slugs
+              ADD COLUMN grouped_by text[] DEFAULT '{}'::text[];
+          SQL, 
+          $this->schema
+        )
+      );
+
+      Schema::table($this->schema . '.slugs', function (Blueprint $table) {
+        $table->unique(['definition_id', 'grouped_by', 'value']);
+      });
+
+      // Create trigger functions
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.definitions__before',
+        parameters: [],
+        return: 'trigger',
+        body: sprintf(
+          <<<PLPGSQL
+  BEGIN
+    -- Prevent updates
+    IF TG_OP = 'UPDATE' THEN
+      NEW.table_schema = OLD.table_schema;
+      NEW.table_name = OLD.table_name;
+      NEW.source_name = OLD.source_name;
+      NEW.target_name = OLD.target_name;
+      NEW.group_by = OLD.group_by;
+      NEW.primary_key_name = OLD.primary_key_name;
+    END IF;
+
+    NEW.primary_key_name = %1\$s.get_primary_key_name(NEW.table_schema, NEW.table_name);
+    
+    IF NEW.primary_key_name IS NULL THEN
+      RAISE EXCEPTION 'Table %%.%% does not have a primary key.', NEW.table_schema, NEW.table_name;
+    END IF;
+
+    RETURN NEW;
+  END;
+PLPGSQL
+          ,
+          $this->schema
+        ),
+        language: 'PLPGSQL'
+      );
+
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.definitions__after',
+        parameters: [],
+        return: 'trigger',
+        body: sprintf(
+          <<<PLPGSQL
+DECLARE
+  trigger_name text;
+  index_name text;
+  index_column_names text;
+  id int;
+BEGIN
+  -- Log
+  RAISE DEBUG '
+    %1\$s.definition__after: start (
+      TG_NAME=%%, 
+      TG_OP=%%, 
+      TG_TABLE_NAME=%%, 
+      OLD=%%, 
+      NEW=%%, 
+      TG_ARGV=%%
+    )', 
+    TG_NAME, 
+    TG_OP, 
+    TG_TABLE_NAME, 
+    OLD::text, 
+    NEW::text, 
+    TG_ARGV::text;
+
+  -- Determine names
+  id = CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END;
+  trigger_name = format('9999_limax_%%s__before', id);
+  index_name = format('%%s_%%s_limax_%%s', NEW.table_name, NEW.target_name, id);
+
+  IF TG_OP = 'DELETE' THEN
+    -- Drop trigger
+    EXECUTE format('
+      DROP TRIGGER IF EXISTS %%I ON %%I.%%I
+    ', trigger_name, OLD.table_schema, OLD.table_name);
+
+    -- Drop column
+    EXECUTE format(
+      'ALTER TABLE %%I.%%I DROP COLUMN IF EXISTS %%I', 
+      OLD.table_schema,
+      OLD.table_name,
+      OLD.target_name
+    );
+
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    -- Create column
+    EXECUTE format(
+      'ALTER TABLE %%I.%%I ADD COLUMN IF NOT EXISTS %%I text', 
+      NEW.table_schema,
+      NEW.table_name,
+      NEW.target_name
+    );
+
+    -- Create trigger
+    EXECUTE format('DROP TRIGGER IF EXISTS %%I ON %%I.%%I', trigger_name, NEW.table_schema, NEW.table_name);
+    EXECUTE format('
+      CREATE TRIGGER %%I
+        BEFORE INSERT OR UPDATE OR DELETE
+        ON %%I.%%I
+        FOR EACH ROW 
+        EXECUTE FUNCTION %1\$s.limax__before(%%L)
+      ', trigger_name, NEW.table_schema, NEW.table_name, NEW.id);
+
+  END IF;
+
+  -- Create index
+  IF TG_OP = 'INSERT' THEN
+    SELECT 
+        array_to_string(
+          array_agg(format('%%I', column_name)),
+          ','
+        ) 
+      FROM 
+        unnest(array_append(NEW.group_by, NEW.target_name)) AS column_name
+      INTO index_column_names;
+
+    EXECUTE format('
+      CREATE UNIQUE INDEX IF NOT EXISTS %%I
+        ON %%I.%%I(%%s)
+      ', index_name, NEW.table_schema, NEW.table_name, index_column_names);
+  END IF;  
+
+  -- Fill slugs
+  IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+    EXECUTE format('
+        UPDATE %%I.%%I 
+          SET %%I = %%I
+          WHERE %%I IN (
+            SELECT %%I FROM %%I.%%I ORDER BY %%I ASC FOR UPDATE
+          )
+      ', 
+      NEW.table_schema, 
+      NEW.table_name, 
+      NEW.source_name, 
+      NEW.source_name, 
+      NEW.primary_key_name, 
+      NEW.primary_key_name,
+      NEW.table_schema, 
+      NEW.table_name, 
+      NEW.primary_key_name
+    );
+  END IF;  
+
+  RETURN NEW;
+END;
+PLPGSQL
+          ,
+          $this->schema
+        ),
+        language: 'PLPGSQL'
+      );
+
+      Schema::createFunctionOrReplace(
+        name: $this->schema . '.limax__before',
+        parameters: [],
+        return: 'trigger',
+        body: sprintf(
+          <<<PLPGSQL
+DECLARE
+  definition %1\$s.definitions%%rowtype;
+  p_definition_id int;
+
+  slug %1\$s.slugs%%rowtype;
+  new_slug text;
+  new_source text;
+  new_grouped_by text[];
+  old_slug text;
+  old_source text;
+  old_grouped_by text[];
+  next_slug text;
+  base text;
+  suffix int DEFAULT NULL;
+  value text;
+  primary_key text;
+  conditions text[] DEFAULT '{}'::text[];
+  column_name text;
+BEGIN
+  -- Cast definition id
+  IF TG_ARGV[0] IS NOT NULL THEN
+    p_definition_id = TG_ARGV[0]::bigint;
+  END IF;
+
+  -- Log
+  RAISE DEBUG '
+    %1\$s.limax__before: start (
+      TG_NAME=%%, 
+      TG_OP=%%, 
+      TG_TABLE_SCHEMA=%%, 
+      TG_TABLE_NAME=%%, 
+      OLD=%%, 
+      NEW=%%, 
+      TG_ARGV=%%
+    )', 
+    TG_NAME, 
+    TG_OP, 
+    TG_TABLE_SCHEMA,
+    TG_TABLE_NAME, 
+    OLD::text, 
+    NEW::text, 
+    TG_ARGV::text;
+
+  -- Nothing to do yet
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  -- Try to find definition
+  SELECT * FROM %1\$s.definitions 
+    WHERE
+        id = p_definition_id
+      AND
+        table_schema = TG_TABLE_SCHEMA
+      AND
+        table_name = TG_TABLE_NAME
+    INTO definition;
+  
+  IF definition IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Get current slug and source
+  new_slug = %1\$s.get_record_value(NEW, definition.target_name);
+  new_source = %1\$s.get_record_value(NEW, definition.source_name);
+  primary_key = %1\$s.get_record_value(NEW, definition.primary_key_name);
+
+  IF cardinality(definition.group_by) > 0 THEN
+    FOREACH column_name IN ARRAY definition.group_by
+    LOOP
+      new_grouped_by = array_append(new_grouped_by, format('%%L', %1\$s.get_record_value(NEW, column_name)));
+    END LOOP;
+  ELSE
+    new_grouped_by = '{}'::text[];
+  END IF;
+
+  -- Get old slug
+  old_slug = %1\$s.get_record_value(OLD, definition.target_name);
+  old_source = %1\$s.get_record_value(OLD, definition.source_name);
+
+  IF cardinality(definition.group_by) > 0 THEN
+    FOREACH column_name IN ARRAY definition.group_by
+    LOOP
+      old_grouped_by = array_append(old_grouped_by, format('%%L', %1\$s.get_record_value(OLD, column_name)));
+    END LOOP;
+  ELSE
+    old_grouped_by = '{}'::text[];
+  END IF;
+
+  -- Only regenerate slug if something has changed
+  IF old_slug IS NOT NULL AND new_source = old_source AND old_grouped_by = new_grouped_by THEN
+    RETURN NEW;
+  END IF;
+
+  -- Determine slug
+  base = %1\$s.generate_slug(new_source);
+
+  IF (new_source = '') IS NOT FALSE THEN
+    base = NULL;
+  ELSE
+    -- Check if slug was already used before
+    EXECUTE format('
+        SELECT 
+            *
+          FROM 
+            %1\$s.slugs
+          WHERE 
+              definition_id = %%L
+            AND
+              primary_key = %%L
+            AND
+              base = %%L
+          LIMIT 1
+        ', 
+        definition.id,
+        primary_key,
+        base
+      ) INTO slug;
+
+    IF NOT (slug IS NULL) THEN
+      suffix = slug.suffix;
+    ELSE
+      EXECUTE format('
+          SELECT 
+              *
+            FROM 
+              %1\$s.slugs
+            WHERE 
+                definition_id = %%L
+              AND
+                grouped_by = %%L
+              AND
+                base = %%L
+            ORDER BY suffix DESC NULLS LAST
+            LIMIT 1
+          ', 
+          definition.id,
+          new_grouped_by,
+          base
+        ) INTO slug;
+
+      IF NOT (slug IS NULL) THEN
+        suffix = coalesce(slug.suffix, 1) + 1;
+      END IF;
+    END IF;
+  END IF;
+
+  -- Store slug
+  value = nullif(concat_ws('_', base, suffix), '');
+  INSERT INTO %1\$s.slugs (
+      definition_id, primary_key, base, suffix, value, grouped_by
+    ) 
+    VALUES (
+      definition.id,
+      primary_key,
+      base,
+      suffix,
+      value,
+      new_grouped_by
+    ) ON CONFLICT ON CONSTRAINT limax_slugs_definition_id_grouped_by_value_unique DO NOTHING;
+
+  -- Update slug in record
+  NEW := NEW #= hstore(definition.target_name, value);
+
+  RETURN NEW;
+END;
+PLPGSQL
+          ,
+          $this->schema
+        ),
+        language: 'PLPGSQL'
+      );
+
+      // Create triggers initially
+      DB::statement(
+        sprintf(
+          <<<PLPGSQL
+CREATE OR REPLACE TRIGGER "100_prepare_before"
+  BEFORE INSERT OR UPDATE OR DELETE ON %1\$s.definitions
+  FOR EACH ROW 
+  EXECUTE FUNCTION %1\$s.definitions__before();
+PLPGSQL
+          ,
+          $this->schema
+        )
+      );
+
+      DB::statement(
+        sprintf(
+          <<<PLPGSQL
+  CREATE OR REPLACE TRIGGER "100_create_artifacts_after"
+    AFTER INSERT OR UPDATE OR DELETE ON %1\$s.definitions
+    FOR EACH ROW 
+    EXECUTE FUNCTION %1\$s.definitions__after();
+PLPGSQL
+          ,
+          $this->schema
+        )
+      );
+
+      // Grant permissions
+      $user = DB::select('SELECT current_user;')[0]->current_user;
+
+      DB::statement(
+        sprintf(
+          <<<PLPGSQL
+  GRANT USAGE ON SCHEMA %1\$s TO %2\$s;
+PLPGSQL
+          ,
+          $this->schema,
+          $user
+        )
+      );
+      DB::statement(
+        sprintf(
+          <<<PLPGSQL
+  GRANT SELECT ON TABLE %1\$s.definitions TO %2\$s;
+PLPGSQL
+          ,
+          $this->schema,
+          $user
+        )
+      );
+    });
+  }
+
+  /**
+   * Reverse the migrations.
+   *
+   * @return void
+   */
+  public function down()
+  {
+    DB::statement('DROP SCHEMA IF EXISTS ' . $this->schema . ' CASCADE;');
+  }
+};
