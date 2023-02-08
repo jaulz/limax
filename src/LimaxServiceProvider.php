@@ -28,14 +28,12 @@ class LimaxServiceProvider extends PackageServiceProvider
         $package
             ->name('limax')
             ->hasConfigFile('limax')
-            ->publishesServiceProvider('LimaxServiceProvider')
             ->hasMigration('2013_01_09_141531_create_limax_extension')
             ->hasInstallCommand(function(InstallCommand $command) {
                 $command
                     ->publishMigrations()
                     ->publishConfigFile()
                     ->askToRunMigrations()
-                    ->copyAndRegisterServiceProviderInApp()
                     ->askToStarRepoOnGitHub('jaulz/limax');
             });
     }
