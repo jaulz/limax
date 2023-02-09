@@ -241,7 +241,6 @@ test('removes slugs if requested', function () {
     DB::table('posts')->delete($secondPost->id);
     expect(SecondPost::slugged('test-2')->first())->toBe(null);
 
-    // TODO: this should actually result in a slug "test" but unfortunately the query requires a predecessor
     $sixthPost = DB::table('posts')->insertReturning([
         'title' => 'test'
     ])->first();
@@ -269,4 +268,14 @@ test('removes slugs if requested', function () {
         'title' => 'test'
     ])->first();
     expect($tenthPost->slug)->toBe('test_6');
+
+    DB::table('posts')->where('id', $tenthPost->id)->update([
+        'title' => 'no test'
+    ]);
+    expect(SecondPost::slugged('test_6')->first())->toBe(null);
+
+    $eleventhPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($eleventhPost->slug)->toBe('test_6');
 });

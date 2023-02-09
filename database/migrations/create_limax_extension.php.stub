@@ -426,24 +426,6 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Delete slug as well if required
-  IF TG_OP = 'DELETE' THEN
-    IF definition.forever = false THEN
-      EXECUTE format('
-        DELETE FROM %1\$s.slugs
-          WHERE 
-              definition_id = %%L
-            AND
-              primary_key = %%L
-        ', 
-        definition.id,
-        %1\$s.get_record_value(OLD, definition.primary_key_name)
-      );
-    END IF;
-
-    RETURN OLD;
-  END IF;
-
   -- Get current slug and source
   new_slug = %1\$s.get_record_value(NEW, definition.target_name);
   new_source = %1\$s.get_record_value(NEW, definition.source_name);
@@ -469,6 +451,27 @@ BEGIN
     END LOOP;
   ELSE
     old_grouped_by = '{}'::%1\$s.column_names;
+  END IF;
+
+  -- Delete slug if required
+  IF TG_OP = 'DELETE' OR ( TG_OP = 'UPDATE' AND new_source != old_source ) THEN
+    IF definition.forever = false THEN
+      EXECUTE format('
+        DELETE FROM %1\$s.slugs
+          WHERE 
+              definition_id = %%L
+            AND
+              primary_key = %%L
+        ', 
+        definition.id,
+        %1\$s.get_record_value(OLD, definition.primary_key_name)
+      );
+    END IF;
+  END IF;
+
+  -- The Delete scenario is easy
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
   END IF;
 
   -- Only regenerate slug if something has changed
