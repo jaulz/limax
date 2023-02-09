@@ -149,6 +149,7 @@ PLPGSQL
           'p_table_name' => 'text',
           'p_source_name' => 'text',
           'p_group_by' => sprintf("%1\$s.column_names DEFAULT '{}'::%1\$s.column_names", Limax::$schema),
+          'p_forever' => 'boolean DEFAULT true',
           'p_target_name' => "text DEFAULT 'slug'",
         ],
         return: 'void',
@@ -156,9 +157,9 @@ PLPGSQL
           <<<PLPGSQL
   BEGIN
     INSERT INTO %1\$s.definitions 
-        (table_schema, table_name, target_name, group_by, source_name) 
+        (table_schema, table_name, target_name, group_by, source_name, forever) 
       VALUES 
-        (p_table_schema, p_table_name, p_target_name, p_group_by, p_source_name);
+        (p_table_schema, p_table_name, p_target_name, p_group_by, p_source_name, p_forever);
   END;
 PLPGSQL
           ,
@@ -181,6 +182,7 @@ PLPGSQL
         $table->text('target_name')->default('slug');
         $table->text('primary_key_name');
         $table->domain('group_by', Limax::$schema . '.column_names')->default(DB::raw(sprintf("'{}'::%1\$s.column_names", Limax::$schema)));
+        $table->boolean('forever')->default(true);
 
         $table->unique(['table_schema', 'table_name', 'target_name']);
       });
@@ -410,11 +412,6 @@ BEGIN
     NEW::text, 
     TG_ARGV::text;
 
-  -- Nothing to do yet
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
-  END IF;
-
   -- Try to find definition
   SELECT * FROM %1\$s.definitions 
     WHERE
@@ -427,6 +424,24 @@ BEGIN
   
   IF definition IS NULL THEN
     RETURN NEW;
+  END IF;
+
+  -- Delete slug as well if required
+  IF TG_OP = 'DELETE' THEN
+    IF definition.forever = false THEN
+      EXECUTE format('
+        DELETE FROM %1\$s.slugs
+          WHERE 
+              definition_id = %%L
+            AND
+              primary_key = %%L
+        ', 
+        definition.id,
+        %1\$s.get_record_value(OLD, definition.primary_key_name)
+      );
+    END IF;
+
+    RETURN OLD;
   END IF;
 
   -- Get current slug and source
@@ -491,26 +506,35 @@ BEGIN
     ELSE
       EXECUTE format('
           SELECT 
-              *
+              coalesce(t1.suffix, 1) + 1
             FROM 
-              %1\$s.slugs
+              %1\$s.slugs AS t1 
+            LEFT JOIN %1\$s.slugs AS t2 
+              ON 
+                  t1.suffix + 1 = t2.suffix 
+                AND
+                  t2.definition_id = %%L
+                AND
+                  t2.grouped_by = %%L
+                AND
+                  t2.base = %%L
             WHERE 
-                definition_id = %%L
+                t1.definition_id = %%L
               AND
-                grouped_by = %%L
+                t1.grouped_by = %%L
               AND
-                base = %%L
-            ORDER BY suffix DESC NULLS LAST
-            LIMIT 1
-          ', 
-          definition.id,
-          new_grouped_by,
-          base
-        ) INTO slug;
-
-      IF NOT (slug IS NULL) THEN
-        suffix = coalesce(slug.suffix, 1) + 1;
-      END IF;
+                t1.base = %%L
+              AND
+                t2.suffix IS NULL 
+            ORDER BY t1.suffix LIMIT 1
+        ', 
+        definition.id,
+        new_grouped_by,
+        base,
+        definition.id,
+        new_grouped_by,
+        base
+      ) INTO suffix;
     END IF;
   END IF;
 

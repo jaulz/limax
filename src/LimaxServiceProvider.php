@@ -44,13 +44,12 @@ class LimaxServiceProvider extends PackageServiceProvider
         string $targetName = 'slug',
         string $sourceName = 'title',
         array $groupBy = [],
+        bool $forever = true,
         ?string $schema = null
       ) {
         /** @var \Illuminate\Database\Schema\Blueprint $this */
         $prefix = $this->prefix;
         $tableName = $this->table;
-        $targetName = $targetName;
-        $sourceName = $sourceName;
         $schema = $schema ?? config('limax.schema') ?? 'public';
   
         $command = $this->addCommand(
@@ -61,7 +60,8 @@ class LimaxServiceProvider extends PackageServiceProvider
             'tableName',
             'targetName',
             'sourceName',
-            'groupBy'
+            'groupBy',
+            'forever'
           )
         );
       });
@@ -77,17 +77,19 @@ class LimaxServiceProvider extends PackageServiceProvider
         $targetName = $command->targetName;
         $sourceName = $command->sourceName;
         $groupBy = $command->groupBy;
+        $forever = $command->forever;
   
         return [
           sprintf(
             <<<SQL
-    SELECT limax.create(%s, %s, %s, (SELECT ARRAY(SELECT jsonb_array_elements_text(%s::jsonb))), %s);
+    SELECT limax.create(%s, %s, %s, (SELECT ARRAY(SELECT jsonb_array_elements_text(%s::jsonb))), %s::boolean, %s);
   SQL
             ,
             $this->quoteString($schema),
             $this->quoteString($prefix . $tableName),
             $this->quoteString($sourceName),
             $this->quoteString(json_encode($groupBy)),
+            $forever ? 1 : 0,
             $this->quoteString($targetName)
           ),
         ];

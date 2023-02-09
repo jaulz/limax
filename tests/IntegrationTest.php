@@ -58,16 +58,16 @@ test('updates correct slugs', function () {
         'Test-Story-4' => 'test-story-4',
         'äöü' => 'aeoeue',
         'èô' => 'eo'
-    ])->each(function ($key, $value) {
-         DB::table('posts')->insert([
+    ])->each(function ($value, $key) {
+        $post = DB::table('posts')->insertReturning([
             'title' => '---'
-        ]);
-
-        $post = DB::table('posts')->updateReturning([
-            'title' => $value
         ])->first();
 
-        expect($post->slug)->toBe($key);
+        $post = DB::table('posts')->where('id', $post->id)->updateReturning([
+            'title' => $key
+        ])->first();
+
+        expect($post->slug)->toBe($value);
     });
 });
 
@@ -81,14 +81,14 @@ test('increments suffix when same slug is used multiple times', function () {
         $table->limax('slug', 'title');
     });
 
-    collect([null,null,null,null])->keys()->each(function($index) {
+    for ($index = 0; $index < 4; $index++) {
         $post = DB::table('posts')->insertReturning([
             'title' => 'test'
         ])->first();
 
         $suffix = $index > 0 ? '_' . ($index + 1) : '';
         expect($post->slug)->toBe('test' . $suffix);
-    });
+    }
 });
 
 test('remembers slugs once assigned', function () {
@@ -104,27 +104,27 @@ test('remembers slugs once assigned', function () {
     $initialTitle = 'test';
     $initialSlug = 'test';
 
-    $initialPost = DB::table('posts')->insertReturning([
+    $firstPost = DB::table('posts')->insertReturning([
         'title' => $initialTitle
     ])->first();
-    expect($initialPost->slug)->toBe($initialSlug);
+    expect($firstPost->slug)->toBe($initialSlug);
 
-    $initialPost = DB::table('posts')->updateReturning([
+    $firstPost = DB::table('posts')->updateReturning([
         'title' => 'not a test anymore'
     ])->first();
-    expect($initialPost->slug)->toBe('not-a-test-anymore');
+    expect($firstPost->slug)->toBe('not-a-test-anymore');
 
     $secondPost = DB::table('posts')->insertReturning([
         'title' => 'test'
     ])->first();
     expect($secondPost->slug)->toBe('test_2');
 
-    $initialPost = DB::table('posts')->where([
-        'id' => $initialPost->id,
+    $firstPost = DB::table('posts')->where([
+        'id' => $firstPost->id,
     ])->updateReturning([
         'title' => 'test'
     ])->first();
-    expect($initialPost->slug)->toBe('test');
+    expect($firstPost->slug)->toBe('test');
 });
 
 test('respects groups', function () {
@@ -188,4 +188,57 @@ test('filters correctly', function () {
     expect(Post::slugged('no-test')->first()->id)->toBe($firstPost->id);
 
     expect(Post::slugged('not-existant')->first())->toBe(null);
+});
+
+test('removes slugs if requested', function () {
+    Schema::create('posts', function (Blueprint $table) {
+        $table->id();
+        $table->text('title');
+    });
+
+    Schema::table('posts', function (Blueprint $table) {
+        $table->limax('slug', 'title', [], false);
+    });
+
+    class SecondPost extends Model {
+        use IsSluggableTrait;
+
+        protected $table = 'posts';
+    }
+
+    $firstPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($firstPost->slug)->toBe('test');
+
+    $secondPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($secondPost->slug)->toBe('test_2');
+
+    $thirdPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($thirdPost->slug)->toBe('test_3');
+
+    $fourthPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($fourthPost->slug)->toBe('test_4');
+
+    DB::table('posts')->delete($thirdPost->id);
+
+    $fifthPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($fifthPost->slug)->toBe('test_3');
+
+    DB::table('posts')->delete($firstPost->id);
+    expect(SecondPost::slugged('test')->first())->toBe(null);
+
+    // TODO: this should actually result in a slug "test" but unfortunately the query requires a predecessor
+    $sixthPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($sixthPost->slug)->toBe('test_5');
 });

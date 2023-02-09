@@ -1,0 +1,67 @@
+SELECT coalesce(t1.suffix, 0) + 1
+            FROM limax.slugs AS t1 
+            LEFT JOIN limax.slugs AS t2 
+              ON 
+                  t1.suffix + 1 = t2.suffix 
+                AND
+                  t2.definition_id = 1
+                AND
+                  t2.grouped_by = '{}'
+                AND
+                  t2.base = 'test'
+            WHERE 
+                t1.definition_id = 1
+              AND
+                t1.grouped_by = '{}'
+              AND
+                t1.base = 'test'
+              AND
+                t2.suffix IS NULL 
+            ORDER BY t1.suffix LIMIT 1;
+
+                  EXECUTE format('
+            SELECT 
+                coalesce(t1.suffix, 1) + 1
+              FROM 
+                %1\$s.slugs AS t1 
+              LEFT JOIN %1\$s.slugs AS t2 
+                ON 
+                    t1.suffix + 1 = t2.suffix 
+                  AND
+                    t2.definition_id = %%L
+                  AND
+                    t2.grouped_by = %%L
+                  AND
+                    t2.base = %%L
+              WHERE 
+                  t1.definition_id = %%L
+                AND
+                  t1.grouped_by = %%L
+                AND
+                  t1.base = %%L
+                AND
+                  t2.suffix IS NULL 
+              ORDER BY t1.suffix LIMIT 1
+          ', 
+          definition.id,
+          new_grouped_by,
+          base,
+          definition.id,
+          new_grouped_by,
+          base
+        ) INTO suffix;
+
+
+
+    dump(DB::select(<<<SQL
+        SELECT 
+            rn prepared_suffix 
+            FROM (SELECT COALESCE(suffix, 1) AS prepared_suffix, ROW_NUMBER() OVER (ORDER BY suffix NULLS FIRST) rn FROM limax.slugs WHERE
+                      definition_id = 1
+                    AND
+                      grouped_by = '{}'
+                    AND
+                      base = 'test' ) z 
+        WHERE rn != prepared_suffix                                                                               
+        ORDER BY rn OFFSET 0 ROW FETCH NEXT 1 ROW ONLY
+    SQL));
