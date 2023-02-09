@@ -167,10 +167,8 @@ PLPGSQL
           ->cascadeOnDelete();
 
         $table->text('primary_key');
-
         $table->text('base')->nullable();
         $table->integer('suffix')->nullable();
-
         $table->text('value')->nullable();
         $table->domain('grouped_by', Limax::$schema . '.column_names')->default(DB::raw("'{}'::text[]"));
 
