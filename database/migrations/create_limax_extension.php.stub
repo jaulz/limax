@@ -17,7 +17,33 @@ return new class extends Migration {
     DB::transaction(function () {
       DB::statement('CREATE SCHEMA IF NOT EXISTS ' . Limax::$schema);
 
-      // Create utility functions
+      // Create artifacts 
+      $this->createTypes();
+      $this->createUtilityFunctions();
+      $this->createFunctions();
+      $this->createTables();
+      $this->createTriggerFunctions();
+      $this->createTriggers();
+    });
+  }
+
+  /**
+   * Reverse the migrations.
+   *
+   * @return void
+   */
+  public function down()
+  {
+    DB::statement('DROP SCHEMA IF EXISTS ' . Limax::$schema . ' CASCADE;');
+  }
+
+  protected function createTypes()
+  {
+    Schema::createDomain(Limax::$schema . '.column_names', 'text[]');
+  }
+
+  protected function createUtilityFunctions()
+  {
       Schema::createFunctionOrReplace(
         name: Limax::$schema . '.get_record_value',
         parameters: [
@@ -78,7 +104,10 @@ PLPGSQL
         ),
         language: 'PLPGSQL'
       );
+  }
 
+  protected function createFunctions()
+  {
       Schema::createFunctionOrReplace(
         name: Limax::$schema . '.generate_slug',
         parameters: [
@@ -119,7 +148,7 @@ PLPGSQL
           'p_table_schema' => 'text',
           'p_table_name' => 'text',
           'p_source_name' => 'text',
-          'p_group_by' => "text[] DEFAULT '{}'::text[]",
+          'p_group_by' => sprintf("%1\$s.column_names DEFAULT '{}'::%1\$s.column_names", Limax::$schema),
           'p_target_name' => "text DEFAULT 'slug'",
         ],
         return: 'void',
@@ -137,10 +166,10 @@ PLPGSQL
         ),
         language: 'PLPGSQL'
       );
+  }
 
-      // Create tables
-      Schema::createDomain(Limax::$schema . '.column_names', 'text[]');
-
+  protected function createTables()
+  {
       Schema::create(Limax::$schema . '.definitions', function (
         Blueprint $table
       ) {
@@ -151,7 +180,7 @@ PLPGSQL
         $table->text('source_name');
         $table->text('target_name')->default('slug');
         $table->text('primary_key_name');
-        $table->domain('group_by', Limax::$schema . '.column_names')->default(DB::raw("'{}'::text[]"));
+        $table->domain('group_by', Limax::$schema . '.column_names')->default(DB::raw(sprintf("'{}'::%1\$s.column_names", Limax::$schema)));
 
         $table->unique(['table_schema', 'table_name', 'target_name']);
       });
@@ -170,15 +199,17 @@ PLPGSQL
         $table->text('base')->nullable();
         $table->integer('suffix')->nullable();
         $table->text('value')->nullable();
-        $table->domain('grouped_by', Limax::$schema . '.column_names')->default(DB::raw("'{}'::text[]"));
+        $table->domain('grouped_by', Limax::$schema . '.column_names')->default(DB::raw(sprintf("'{}'::%1\$s.column_names", Limax::$schema)));
 
         $table->timestampTz('created_at')->default(DB::raw('NOW()'));
 
         $table->index(['definition_id', 'primary_key']);
         $table->unique(['definition_id', 'grouped_by', 'value']);
       });
+  }
 
-      // Create trigger functions
+  protected function createTriggerFunctions()
+  {
       Schema::createFunctionOrReplace(
         name: Limax::$schema . '.definitions__before',
         parameters: [],
@@ -343,10 +374,10 @@ DECLARE
   slug %1\$s.slugs%%rowtype;
   new_slug text;
   new_source text;
-  new_grouped_by text[];
+  new_grouped_by %1\$s.column_names;
   old_slug text;
   old_source text;
-  old_grouped_by text[];
+  old_grouped_by %1\$s.column_names;
   next_slug text;
   base text;
   suffix int DEFAULT NULL;
@@ -404,12 +435,12 @@ BEGIN
   primary_key = %1\$s.get_record_value(NEW, definition.primary_key_name);
 
   IF cardinality(definition.group_by) > 0 THEN
-    FOREACH column_name IN ARRAY definition.group_by
+    FOREACH column_name IN ARRAY definition.group_by::text[]
     LOOP
       new_grouped_by = array_append(new_grouped_by, format('%%L', %1\$s.get_record_value(NEW, column_name)));
     END LOOP;
   ELSE
-    new_grouped_by = '{}'::text[];
+    new_grouped_by = '{}'::%1\$s.column_names;
   END IF;
 
   -- Get old slug
@@ -417,12 +448,12 @@ BEGIN
   old_source = %1\$s.get_record_value(OLD, definition.source_name);
 
   IF cardinality(definition.group_by) > 0 THEN
-    FOREACH column_name IN ARRAY definition.group_by
+    FOREACH column_name IN ARRAY definition.group_by::text[]
     LOOP
       old_grouped_by = array_append(old_grouped_by, format('%%L', %1\$s.get_record_value(OLD, column_name)));
     END LOOP;
   ELSE
-    old_grouped_by = '{}'::text[];
+    old_grouped_by = '{}'::%1\$s.column_names;
   END IF;
 
   -- Only regenerate slug if something has changed
@@ -508,8 +539,10 @@ PLPGSQL
         ),
         language: 'PLPGSQL'
       );
+  }
 
-      // Create triggers initially
+  protected function createTriggers()
+  {
       DB::statement(
         sprintf(
           <<<PLPGSQL
@@ -535,40 +568,5 @@ PLPGSQL
           Limax::$schema
         )
       );
-
-      // Grant permissions
-      $user = DB::select('SELECT current_user;')[0]->current_user;
-
-      DB::statement(
-        sprintf(
-          <<<PLPGSQL
-  GRANT USAGE ON SCHEMA %1\$s TO %2\$s;
-PLPGSQL
-          ,
-          Limax::$schema,
-          $user
-        )
-      );
-      DB::statement(
-        sprintf(
-          <<<PLPGSQL
-  GRANT SELECT ON TABLE %1\$s.definitions TO %2\$s;
-PLPGSQL
-          ,
-          Limax::$schema,
-          $user
-        )
-      );
-    });
-  }
-
-  /**
-   * Reverse the migrations.
-   *
-   * @return void
-   */
-  public function down()
-  {
-    DB::statement('DROP SCHEMA IF EXISTS ' . Limax::$schema . ' CASCADE;');
   }
 };

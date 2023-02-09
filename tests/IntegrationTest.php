@@ -124,3 +124,30 @@ test('remembers slugs once assigned', function () {
     ])->first();
     expect($initialPost->slug)->toBe('test');
 });
+
+test('respects groups', function () {
+    Schema::create('posts', function (Blueprint $table) {
+        $table->id();
+        $table->integer('category_id');
+        $table->text('title');
+    });
+
+    Schema::table('posts', function (Blueprint $table) {
+        $table->limax('slug', 'title');
+        $table->limax('category_slug', 'title', ['category_id']);
+    });
+
+    collect([null,null,null,null])->keys()->each(function($index) {
+        $categoryId = $index % 2;
+        $post = DB::table('posts')->insertReturning([
+            'title' => 'test',
+            'category_id' => $categoryId,
+        ])->first();
+
+        $suffix = $index > 0 ? '_' . ($index + 1) : '';
+        expect($post->slug)->toBe('test' . $suffix);
+
+        $categorySuffix = intdiv($index, 2) > 0 ? '_' . (intdiv($index, 2) + 1) : '';
+        expect($post->category_slug)->toBe('test' . $categorySuffix);
+    });
+});
