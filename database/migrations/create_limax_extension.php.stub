@@ -199,13 +199,13 @@ PLPGSQL
 
         $table->text('primary_key');
         $table->text('base')->nullable();
-        $table->integer('suffix')->nullable();
+        $table->integer('suffix');
         $table->text('value')->nullable();
         $table->domain('grouped_by', Limax::getSchema() . '.column_names')->default(DB::raw(sprintf("'{}'::%1\$s.column_names", Limax::getSchema())));
 
         $table->timestampTz('created_at')->default(DB::raw('NOW()'));
 
-        $table->index(['definition_id', 'primary_key']);
+        $table->index(['definition_id', 'primary_key', 'base']);
         $table->unique(['definition_id', 'grouped_by', 'value']);
       });
   }
@@ -506,40 +506,65 @@ BEGIN
     ELSE
       EXECUTE format('
           SELECT 
-              coalesce(t1.suffix, 1) + 1
+              min(suffix)
             FROM 
               %1\$s.slugs AS t1 
-            LEFT JOIN %1\$s.slugs AS t2 
-              ON 
-                  t1.suffix + 1 = t2.suffix 
-                AND
-                  t2.definition_id = %%L
-                AND
-                  t2.grouped_by = %%L
-                AND
-                  t2.base = %%L
             WHERE 
-                t1.definition_id = %%L
+                definition_id = %%L
               AND
-                t1.grouped_by = %%L
+                grouped_by = %%L
               AND
-                t1.base = %%L
-              AND
-                t2.suffix IS NULL 
-            ORDER BY t1.suffix LIMIT 1
+                base = %%L
         ', 
-        definition.id,
-        new_grouped_by,
-        base,
         definition.id,
         new_grouped_by,
         base
       ) INTO suffix;
+
+      IF suffix IS NULL THEN 
+        suffix = 1;
+      ELSE
+        IF suffix = 1 THEN
+          EXECUTE format('
+              SELECT 
+                  coalesce(t1.suffix, 1) + 1
+                FROM 
+                  %1\$s.slugs AS t1 
+                LEFT JOIN %1\$s.slugs AS t2 
+                  ON 
+                      t1.suffix + 1 = t2.suffix 
+                    AND
+                      t2.definition_id = %%L
+                    AND
+                      t2.grouped_by = %%L
+                    AND
+                      t2.base = %%L
+                WHERE 
+                    t1.definition_id = %%L
+                  AND
+                    t1.grouped_by = %%L
+                  AND
+                    t1.base = %%L
+                  AND
+                    t2.suffix IS NULL 
+                ORDER BY t1.suffix LIMIT 1
+            ', 
+            definition.id,
+            new_grouped_by,
+            base,
+            definition.id,
+            new_grouped_by,
+            base
+          ) INTO suffix;
+        ELSE
+          suffix = 1;
+        END IF;
+      END IF;
     END IF;
   END IF;
 
   -- Store slug
-  value = nullif(concat_ws('_', base, suffix), '');
+  value = nullif(concat_ws('_', base, nullif(suffix, 1)), '');
   INSERT INTO %1\$s.slugs (
       definition_id, primary_key, base, suffix, value, grouped_by
     ) 

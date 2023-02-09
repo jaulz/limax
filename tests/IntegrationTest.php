@@ -211,6 +211,8 @@ test('removes slugs if requested', function () {
     ])->first();
     expect($firstPost->slug)->toBe('test');
 
+    dump(DB::table('limax.slugs')->get());
+
     $secondPost = DB::table('posts')->insertReturning([
         'title' => 'test'
     ])->first();
@@ -236,9 +238,35 @@ test('removes slugs if requested', function () {
     DB::table('posts')->delete($firstPost->id);
     expect(SecondPost::slugged('test')->first())->toBe(null);
 
+    DB::table('posts')->delete($secondPost->id);
+    expect(SecondPost::slugged('test-2')->first())->toBe(null);
+
     // TODO: this should actually result in a slug "test" but unfortunately the query requires a predecessor
     $sixthPost = DB::table('posts')->insertReturning([
         'title' => 'test'
     ])->first();
-    expect($sixthPost->slug)->toBe('test_5');
+    expect($sixthPost->slug)->toBe('test');
+
+    $seventhPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($seventhPost->slug)->toBe('test_2');
+
+    DB::table('posts')->delete($fourthPost->id);
+    expect(SecondPost::slugged('test-4')->first())->toBe(null);
+
+    $eigthPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($eigthPost->slug)->toBe('test_4');
+
+    $ninthPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($ninthPost->slug)->toBe('test_5');
+
+    $tenthPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+    expect($tenthPost->slug)->toBe('test_6');
 });
