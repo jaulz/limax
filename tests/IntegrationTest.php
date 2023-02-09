@@ -137,7 +137,7 @@ test('respects groups', function () {
         $table->limax('category_slug', 'title', ['category_id']);
     });
 
-    collect([null,null,null,null])->keys()->each(function($index) {
+    for ($index = 0; $index < 100; $index++) {
         $categoryId = $index % 2;
         $post = DB::table('posts')->insertReturning([
             'title' => 'test',
@@ -149,5 +149,5 @@ test('respects groups', function () {
 
         $categorySuffix = intdiv($index, 2) > 0 ? '_' . (intdiv($index, 2) + 1) : '';
         expect($post->category_slug)->toBe('test' . $categorySuffix);
-    });
+    }
 });
