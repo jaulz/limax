@@ -4,5 +4,7 @@ namespace Jaulz\Limax;
 
 class Limax
 {
-  public static string $schema = 'limax';
+  public function getSchema() {
+    return 'limax';
+  }
 }
