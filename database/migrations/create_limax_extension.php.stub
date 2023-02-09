@@ -139,6 +139,8 @@ PLPGSQL
       );
 
       // Create tables
+      Schema::createDomain(Limax::$schema . '.column_names', 'text[]');
+
       Schema::create(Limax::$schema . '.definitions', function (
         Blueprint $table
       ) {
@@ -149,18 +151,10 @@ PLPGSQL
         $table->text('source_name');
         $table->text('target_name')->default('slug');
         $table->text('primary_key_name');
+        $table->domain('group_by', Limax::$schema . '.column_names')->default(DB::raw("'{}'::text[]"));
 
         $table->unique(['table_schema', 'table_name', 'target_name']);
       });
-
-      DB::statement(
-        sprintf(<<<SQL
-            ALTER TABLE %1\$s.definitions
-              ADD COLUMN group_by text[] DEFAULT '{}'::text[];
-          SQL, 
-          Limax::$schema
-        )
-      );
 
       Schema::create(Limax::$schema . '.slugs', function (Blueprint $table) {
         $table->id()->generatedAs();
@@ -178,22 +172,11 @@ PLPGSQL
         $table->integer('suffix')->nullable();
 
         $table->text('value')->nullable();
+        $table->domain('grouped_by', Limax::$schema . '.column_names')->default(DB::raw("'{}'::text[]"));
 
         $table->timestampTz('created_at')->default(DB::raw('NOW()'));
 
         $table->index(['definition_id', 'primary_key']);
-      });
-
-      DB::statement(
-        sprintf(<<<SQL
-            ALTER TABLE %1\$s.slugs
-              ADD COLUMN grouped_by text[] DEFAULT '{}'::text[];
-          SQL, 
-          Limax::$schema
-        )
-      );
-
-      Schema::table(Limax::$schema . '.slugs', function (Blueprint $table) {
         $table->unique(['definition_id', 'grouped_by', 'value']);
       });
 
