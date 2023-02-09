@@ -2,9 +2,11 @@
 
 namespace Jaulz\Limax\Tests;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Jaulz\Limax\Traits\IsSluggableTrait;
 use Tpetry\PostgresqlEnhanced\Support\Facades\Schema;
 
 uses(RefreshDatabase::class);
@@ -150,4 +152,40 @@ test('respects groups', function () {
         $categorySuffix = intdiv($index, 2) > 0 ? '_' . (intdiv($index, 2) + 1) : '';
         expect($post->category_slug)->toBe('test' . $categorySuffix);
     }
+});
+
+test('filters correctly', function () {
+    Schema::create('posts', function (Blueprint $table) {
+        $table->id();
+        $table->text('title');
+    });
+
+    Schema::table('posts', function (Blueprint $table) {
+        $table->limax('slug', 'title');
+    });
+
+    class Post extends Model {
+        use IsSluggableTrait;
+    }
+
+    $firstPost = DB::table('posts')->insertReturning([
+        'title' => 'test'
+    ])->first();
+
+    expect(Post::slugged('test')->first()->id)->toBe($firstPost->id);
+
+    $secondPost = DB::table('posts')->insertReturning([
+        'title' => 'second test'
+    ])->first();
+
+    expect(Post::slugged('second-test')->first()->id)->toBe($secondPost->id);
+
+    $firstPost = DB::table('posts')->updateReturning([
+        'title' => 'no test'
+    ])->where('id', $firstPost->id)->first();
+
+    expect(Post::slugged('test')->first()->id)->toBe($firstPost->id);
+    expect(Post::slugged('no-test')->first()->id)->toBe($firstPost->id);
+
+    expect(Post::slugged('not-existant')->first())->toBe(null);
 });
