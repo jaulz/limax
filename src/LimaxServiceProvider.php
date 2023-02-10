@@ -51,7 +51,7 @@ class LimaxServiceProvider extends PackageServiceProvider
         /** @var \Illuminate\Database\Schema\Blueprint $this */
         $prefix = $this->prefix;
         $tableName = $this->table;
-        $schema = $schema ?? config('limax.schema') ?? 'public';
+        $schema = $schema ?? config('limax.table_schema') ?? 'public';
   
         $command = $this->addCommand(
           'limax',

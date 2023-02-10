@@ -30,9 +30,10 @@ trait IsSluggableTrait
    * @param  \Illuminate\Database\Eloquent\Builder  $query
    * @param  string  $slug
    * @param  string  $column
+   * @param  ?string  $tableSchema
    * @return void
    */
-  public function scopeSlugged(Builder $query, string $value, string $column = 'slug')
+  public function scopeSlugged(Builder $query, string $value, string $column = 'slug', string $tableSchema = null)
   {
     /*$query->where(function (Builder $query) use ($value) {
       $query->where($this->getKeyName(), match ($this->getKeyType() === 'string') {
@@ -43,7 +44,7 @@ trait IsSluggableTrait
     });*/
 
     $definition = DB::table(Limax::getSchema() . '.definitions')->where('table_name', $this->getTable())
-      ->where('table_schema', 'public')
+      ->where('table_schema', $tableSchema ?? config('limax.table_schema'))
       ->where('target_name', $column)->first();
 
     if (!$definition) {
