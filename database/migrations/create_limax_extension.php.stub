@@ -204,6 +204,7 @@ PLPGSQL
         $table->domain('grouped_by', Limax::getSchema() . '.column_names')->default(DB::raw(sprintf("'{}'::%1\$s.column_names", Limax::getSchema())));
 
         $table->timestampTz('created_at')->default(DB::raw('NOW()'));
+        $table->timestampTz('updated_at')->default(DB::raw('NOW()'));
 
         $table->index(['definition_id', 'primary_key', 'base']);
         $table->unique(['definition_id', 'grouped_by', 'value']);
@@ -578,7 +579,9 @@ BEGIN
       suffix,
       value,
       new_grouped_by
-    ) ON CONFLICT ON CONSTRAINT limax_slugs_definition_id_grouped_by_value_unique DO NOTHING;
+    ) 
+    ON CONFLICT ON CONSTRAINT limax_slugs_definition_id_grouped_by_value_unique 
+    DO UPDATE SET updated_at = NOW();
 
   -- Update slug in record
   NEW := NEW #= hstore(definition.target_name, value);
