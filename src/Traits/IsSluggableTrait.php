@@ -37,7 +37,7 @@ trait IsSluggableTrait
   public function scopeSlugged(Builder $query, string $value, string $column = 'slug', string $tableSchema = null)
   {
     $query->whereIn($this->getKeyName(),  function (PostgresBuilder $query) use ($value, $tableSchema, $column) {
-      $query->select(DB::raw(match ($this->getKeyType() === 'string') {
+      $query->select(DB::raw(match ($this->getKeyType()) {
         'string' => 'primary_key',
         default => 'primary_key::int',
       }))
