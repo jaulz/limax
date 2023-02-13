@@ -172,22 +172,22 @@ test('filters correctly', function () {
         'title' => 'test'
     ])->first();
 
-    expect(Post::slugged('test')->first()->id)->toBe($firstPost->id);
+    expect(Post::findBySlugOrFail('test')->id)->toBe($firstPost->id);
 
     $secondPost = DB::table('posts')->insertReturning([
         'title' => 'second test'
     ])->first();
 
-    expect(Post::slugged('second-test')->first()->id)->toBe($secondPost->id);
+    expect(Post::findBySlugOrFail('second-test')->id)->toBe($secondPost->id);
 
     $firstPost = DB::table('posts')->updateReturning([
         'title' => 'no test'
     ])->where('id', $firstPost->id)->first();
 
-    expect(Post::slugged('test')->first()->id)->toBe($firstPost->id);
-    expect(Post::slugged('no-test')->first()->id)->toBe($firstPost->id);
+    expect(Post::findBySlugOrFail('test')->id)->toBe($firstPost->id);
+    expect(Post::findBySlugOrFail('no-test')->id)->toBe($firstPost->id);
 
-    expect(Post::slugged('not-existant')->first())->toBe(null);
+    expect(Post::findBySlug('not-existant'))->toBe(null);
 });
 
 test('removes slugs if requested', function () {
@@ -210,8 +210,6 @@ test('removes slugs if requested', function () {
         'title' => 'test'
     ])->first();
     expect($firstPost->slug)->toBe('test');
-
-    dump(DB::table('limax.slugs')->get());
 
     $secondPost = DB::table('posts')->insertReturning([
         'title' => 'test'
@@ -236,10 +234,10 @@ test('removes slugs if requested', function () {
     expect($fifthPost->slug)->toBe('test_3');
 
     DB::table('posts')->delete($firstPost->id);
-    expect(SecondPost::slugged('test')->first())->toBe(null);
+    expect(SecondPost::findBySlug('test'))->toBe(null);
 
     DB::table('posts')->delete($secondPost->id);
-    expect(SecondPost::slugged('test-2')->first())->toBe(null);
+    expect(SecondPost::findBySlug('test-2'))->toBe(null);
 
     $sixthPost = DB::table('posts')->insertReturning([
         'title' => 'test'
@@ -252,7 +250,7 @@ test('removes slugs if requested', function () {
     expect($seventhPost->slug)->toBe('test_2');
 
     DB::table('posts')->delete($fourthPost->id);
-    expect(SecondPost::slugged('test-4')->first())->toBe(null);
+    expect(SecondPost::findBySlug('test-4'))->toBe(null);
 
     $eigthPost = DB::table('posts')->insertReturning([
         'title' => 'test'
@@ -272,7 +270,7 @@ test('removes slugs if requested', function () {
     DB::table('posts')->where('id', $tenthPost->id)->update([
         'title' => 'no test'
     ]);
-    expect(SecondPost::slugged('test_6')->first())->toBe(null);
+    expect(SecondPost::findBySlug('test_6'))->toBe(null);
 
     $eleventhPost = DB::table('posts')->insertReturning([
         'title' => 'test'
