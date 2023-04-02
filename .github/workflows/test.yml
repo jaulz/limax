@@ -52,3 +52,5 @@ jobs:
 
     - name: Test
       run: vendor/bin/pest
+      env:
+        DB_PORT: ${{ job.services.postgres.ports[5432] }}
