@@ -90,8 +90,16 @@ class LimaxServiceProvider extends PackageServiceProvider
       return [
         sprintf(
           <<<SQL
-    SELECT limax.create(%s, %s, %s, (SELECT ARRAY(SELECT jsonb_array_elements_text(%s::jsonb))), %s::boolean, %s);
-  SQL,
+            SELECT 
+              limax.create(
+                %s, 
+                %s, 
+                %s, 
+                (SELECT ARRAY(SELECT jsonb_array_elements_text(%s::jsonb))), 
+                %s::boolean, 
+                %s
+              );
+          SQL,
           $this->quoteString($schema),
           $this->quoteString($prefix . $tableName),
           $this->quoteString($sourceName),
